@@ -58,6 +58,9 @@ class UserService:
             raise ValueError("이메일 또는 비밀번호가 올바르지 않습니다.")
         if not user.is_active:
             raise ValueError("비활성화된 계정입니다.")
+        
+        #chat-service 에서 user_id > username 조회할 수 있도록 캐시
+        await self.redis.setex(f"user:{user.id}:username", 3600 ,user.username)
 
         return TokenResponse(access_token=self.create_access_token(user.id))
     

@@ -4,6 +4,7 @@ from datetime import datetime
 
 from core.mongo_client import message_collection
 from core.redis_client import get_redis
+from core.auth import verify_token_ws
 from websocket.connection_manager import manager
 from services.chat_service import ChatService
 
@@ -18,18 +19,31 @@ def get_chat_service(redis: Redis = Depends(get_redis)) -> ChatService:
 async def websocket_endpoint(
     websocket: WebSocket,
     room_id: str,
-    user_id: int = Query(...),           # ws://host/api/chat/ws/room1?user_id=1
-    username: str = Query(...),          # ws://host/api/chat/ws/room1?username=홍길동
+    token: str = Query(...),          # ← user_id, username 대신 토큰으로 변경
     redis: Redis = Depends(get_redis),
     service: ChatService = Depends(get_chat_service),
 ):
-    # 1. 연결
+    # ── 1. 토큰 검증 ───────────────────────────────────
+    try:
+        user_id = await verify_token_ws(websocket, token)
+    except ValueError:
+        return
+
+    # ── 2. Redis에서 username 조회 ─────────────────────
+    # user-service 로그인 시 캐시해둔 값
+    username = await redis.get(f"user:{user_id}:username")
+    if not username:
+        # 토큰은 맞지만 username 캐시 없음 = 로그인 안 한 상태
+        await websocket.close(code=1008)
+        return
+        
+    # ── 3. 입장 ─────────────────────
     await manager.connect(websocket, room_id, user_id, redis)
 
-    # 2. 입장 이벤트 브로드캐스트
+    # ── 4. 입장 이벤트 브로드캐스트 ─────────────────────
     await service.user_joined(room_id, user_id, username)
 
-    # 3. 최근 메시지 전송 (입장 시 이전 대화 로딩)
+    # ── 5. 최근 메시지 전송 (입장 시 이전 대화 로딩) ─────────────────────
     recent = await service.get_recent_messages(room_id)
     await websocket.send_json({
         "type": "history",
@@ -37,7 +51,7 @@ async def websocket_endpoint(
     })
 
     try:
-        # 4. 메시지 수신 루프
+        # ── 6. 메시지 수신 루프 ─────────────────────
         while True:
             data = await websocket.receive_json()
 
@@ -54,7 +68,7 @@ async def websocket_endpoint(
             )
 
     except WebSocketDisconnect:
-        # 5. 연결 해제
+        # ── 7. 연결 해제 ─────────────────────
         await manager.disconnect(room_id, user_id, redis)
         await service.user_left(room_id, user_id, username)
         
