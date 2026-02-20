@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from core.mongo_client import init_indexes
 from core.redis_client import redis_client
@@ -35,6 +36,15 @@ app = FastAPI(
     title="Chat Service",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+# CORS 설정 — 프론트엔드 개발 서버 허용
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://localhost"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(chat_router)

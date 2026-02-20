@@ -53,7 +53,7 @@ class ChatService:
         
         # 5. Redis에 최근 메시지 캐시 (채팅방 입장 시 빠르게 로딩)
         cache_key = f"room:{room_id}:recent"
-        await self.redis.lpush(cache_key, json.dumps(response.model_dump_json()))
+        await self.redis.lpush(cache_key, response.model_dump_json())
         await self.redis.ltrim(cache_key, 0, 29)   # 최근 30개만 유지
         await self.redis.expire(cache_key, 3600)   # 1시간 TTL
         
@@ -71,12 +71,12 @@ class ChatService:
         
         # 2. 캐시 없으면 MongoDB 조회
         messages = await self.repo.get_recent(room_id, limit=30)
-        return [m.model_dump() for m in messages]
+        return [m.model_dump(mode="json") for m in messages]
     
     # ── 이전 메시지 페이지네이션 ──────────────────────
     async def get_messages_before(self, room_id: str, before: datetime, limit: int = 50) -> list[dict]:
         messages = await self.repo.get_by_room(room_id, limit, before)
-        return [m.model_dump() for m in messages]
+        return [m.model_dump(mode="json") for m in messages]
         
     # ── 채팅방 입장 이벤트 ────────────────────────────
     async def user_joined(self, room_id: str, user_id: int, username: str):
