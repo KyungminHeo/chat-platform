@@ -21,19 +21,23 @@ class ConnectionManager():
         await redis.sadd(f"room:{room_id}:online", user_id)
         await redis.setex(f"user:{user_id}:status", 300, "online")
         
+        # Redis에 채팅방 멤버로 등록 (영구 — 알림 대상 판별용)
+        # online은 현재 접속 상태, members는 방에 소속된 유저 전체
+        await redis.sadd(f"room:{room_id}:members", user_id)
+        
         print(f"[WS] user:{user_id} connected to room:{room_id}")
     
     # ── 연결 해제 ──────────────────────────────────────
     async def disconnect(self, room_id: str, user_id: int, redis: Redis):
         
         # 메모리에서 제거
-        if room_id not in self.active_connections:
+        if room_id in self.active_connections:
             self.active_connections[room_id].pop(user_id, None)
             # 빈 방이면 방도 제거
             if not self.active_connections[room_id]:
                 del self.active_connections[room_id]
                 
-        # Redis 온라인 상태 제거
+        # Redis 온라인 상태 제거 (members는 유지 — 방 멤버는 그대로)
         await redis.srem(f"room:{room_id}:online", user_id)
         await redis.delete(f"user:{user_id}:status")
         
