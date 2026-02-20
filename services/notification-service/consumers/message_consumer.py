@@ -57,28 +57,33 @@ async def handle_message(event: dict, notify_service: NotifyService):
         # 에러 발생해도 consumer는 계속 실행
 
 async def consume():
-    consumer = AIOKafkaConsumer(
-        "chat-messages",                         # 구독할 Kafka 토픽 (chat-service가 발행)
-        bootstrap_servers=settings.KAFKA_URL,
-        group_id=settings.KAFKA_GROUP_ID,        # 같은 그룹 내 인스턴스끼리 메시지 분산 처리, 스케일 아웃 시 중복 알림 방지
-        value_deserializer=lambda v: json.loads(v.decode("utf-8")),  # bytes → dict 자동 변환
-        auto_offset_reset="latest",              # 재시작 시 재시작 이후 메시지부터 처리, "earliest"로 하면 전체 재처리 → 알림 폭탄 위험
-    )
-    
-    await consumer.start()
-    print("Kafka Consumer started - listening to 'chat-messages'")
-    
     notify_service = NotifyService(redis_client)
-    
+
+    # Kafka 뜰 때까지 무한 재시도
+    while True:
+        try:
+            consumer = AIOKafkaConsumer(
+                "chat-messages",
+                bootstrap_servers=settings.KAFKA_URL,
+                group_id=settings.KAFKA_GROUP_ID,
+                value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+                auto_offset_reset="latest",
+                retry_backoff_ms=1000,        # 재시도 간격
+            )
+            await consumer.start()
+            print("Kafka Consumer started")
+            break
+
+        except Exception as e:
+            print(f"Kafka 연결 재시도 중: {e}")
+            await asyncio.sleep(5)
+
     try:
-        # 메시지 올 때마다 자동으로 handle_message() 호출
-        # 비동기라 메시지 대기 중에도 다른 작업 블록하지 않음
         async for msg in consumer:
             await handle_message(msg.value, notify_service)
-            
+
     except asyncio.CancelledError:
         print("Consumer cancelled")
-    
     finally:
         await consumer.stop()
         print("Kafka Consumer stopped")

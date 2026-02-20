@@ -3,50 +3,74 @@ version: '3.8'
 services:
 
   # ── 인프라 ──────────────────────────────────────────
-  traefik:
-    image: traefik:v2.10
-    command:
-      - "--providers.docker=true"
-      - "--entrypoints.web.address=:80"
-      - "--api.dashboard=true"
-      - "--api.insecure=true"
+  nginx:
+    image: nginx:alpine
     ports:
       - "80:80"
-      - "8080:8080"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - user-service
+      - chat-service
+      - notification-service
+    restart: on-failure
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_LOG4J_ROOT_LOGLEVEL: "ERROR"    # ← 로그 줄이기
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy              # ← zookeeper 준비 후 시작
     ports:
       - "9092:9092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_CREATE_TOPICS: "chat-messages:1:1"
+      KAFKA_LOG4J_ROOT_LOGLEVEL: "WARN"        # ← 로그 줄이기
+      KAFKA_TOOLS_LOG4J_LOGLEVEL: "ERROR"
+      KAFKA_LOG4J_LOGGERS: "kafka=WARN,kafka.controller=WARN,kafka.coordinator.group=WARN,state.change.logger=WARN,kafka.log=WARN"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s                         # ← 30초 후부터 체크
 
   # ── 서비스 ──────────────────────────────────────────
   user-service:
     build: ./services/user-service
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.user.rule=PathPrefix(`/api/users`)"
-      - "traefik.http.services.user.loadbalancer.server.port=8001"
+    ports:
+      - "8001:8001"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     environment:
       - SECRET_KEY=${SECRET_KEY}
       - ALGORITHM=${ALGORITHM}
@@ -56,13 +80,13 @@ services:
 
   chat-service:
     build: ./services/chat-service
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.chat.rule=PathPrefix(`/api/chat`)"
-      - "traefik.http.services.chat.loadbalancer.server.port=8002"
+    ports:
+      - "8002:8002"
     depends_on:
-      - kafka
-      - redis
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy              # ← Kafka 완전히 준비 후 시작
     environment:
       - SECRET_KEY=${SECRET_KEY}
       - ALGORITHM=${ALGORITHM}
@@ -73,13 +97,13 @@ services:
 
   notification-service:
     build: ./services/notification-service
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.notify.rule=PathPrefix(`/api/notify`)"
-      - "traefik.http.services.notify.loadbalancer.server.port=8003"
+    ports:
+      - "8003:8003"
     depends_on:
-      - kafka
-      - redis
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy              # ← Kafka 완전히 준비 후 시작
     environment:
       - REDIS_URL=${REDIS_URL}
       - KAFKA_URL=${KAFKA_URL}

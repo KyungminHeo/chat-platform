@@ -9,7 +9,7 @@ class Message(BaseModel):
     sender_id: int
     sender_username: str
     content: str
-    created_at: datetime = Field(default_factory=datetime.utcnow())
+    created_at: datetime = Field(default_factory=datetime.now)
     
     model_config = {
         "populate_by_name": True,

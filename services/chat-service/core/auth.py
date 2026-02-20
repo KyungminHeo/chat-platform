@@ -12,7 +12,7 @@ async def verify_token_ws(websocket: WebSocket, token: str) -> int:
         payload = jwt.decode(
             token, 
             settings.SECRET_KEY,
-            algorithm=settings.ALGORITHM
+            algorithms=settings.ALGORITHM
         )
         
         user_id = payload.get("sub")
