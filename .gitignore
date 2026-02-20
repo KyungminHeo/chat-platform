@@ -1,0 +1,24 @@
+# 시크릿 파일 - 절대 올리면 안 됨
+.env
+.env.dev
+.env.prod
+.env.*
+!.env.example      # example만 올림
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# 가상환경
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Docker
+.dockerignore
