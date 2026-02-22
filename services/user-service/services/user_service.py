@@ -62,7 +62,11 @@ class UserService:
         #chat-service 에서 user_id > username 조회할 수 있도록 캐시
         await self.redis.setex(f"user:{user.id}:username", 3600 ,user.username)
 
-        return TokenResponse(access_token=self.create_access_token(user.id))
+        return TokenResponse(
+            access_token=self.create_access_token(user.id),
+            user_id=user.id,
+            token_type="bearer"
+        )
     
     # ── 유저 조회 + 캐싱 ───────────────────────────────
     async def get_user(self, user_id: int) -> UserResponse:
